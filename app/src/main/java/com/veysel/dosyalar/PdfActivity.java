@@ -19,9 +19,13 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.net.Uri;
 import java.io.File;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 public class PdfActivity extends Activity {
+    File tmp;
     PdfRenderer r;
     ParcelFileDescriptor fd;
     V v;
@@ -36,9 +40,26 @@ public class PdfActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         String path = getIntent().getStringExtra("p");
+        Uri d = getIntent().getData();
         try {
-            fd = ParcelFileDescriptor.open(new File(path), ParcelFileDescriptor.MODE_READ_ONLY);
-            r = new PdfRenderer(fd);
+            if (d == null) fd = ParcelFileDescriptor.open(new File(path), ParcelFileDescriptor.MODE_READ_ONLY);
+            else if ("file".equals(d.getScheme())) fd = ParcelFileDescriptor.open(new File(d.getPath()), ParcelFileDescriptor.MODE_READ_ONLY);
+            else {
+                try {
+                    fd = getContentResolver().openFileDescriptor(d, "r");
+                    r = new PdfRenderer(fd);
+                } catch (Exception e) {
+                    if (fd != null) fd.close();
+                    tmp = new File(getCacheDir(), "t.pdf");
+                    try (InputStream in = getContentResolver().openInputStream(d); OutputStream out = new java.io.FileOutputStream(tmp)) {
+                        byte[] bf = new byte[65536]; int n;
+                        while ((n = in.read(bf)) > 0) out.write(bf, 0, n);
+                    }
+                    fd = ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY);
+                    r = null;
+                }
+            }
+            if (r == null) r = new PdfRenderer(fd);
             pages = r.getPageCount();
         } catch (Exception e) {
             Toast.makeText(this, "PDF açılamadı (şifreli veya bozuk olabilir)", Toast.LENGTH_LONG).show();
@@ -60,7 +81,7 @@ public class PdfActivity extends Activity {
         root.post(this::render);
     }
 
-    void upd() { info.setText((page + 1) + " / " + pages + "  •  " + LN[level] + "  •  Menü: seçenekler"); }
+    void upd() { info.setText((page + 1) + " / " + pages + "  •  " + LN[level] + "  •  OK uzun bas: seçenekler"); }
 
     void render() {
         final int t = ++token, W = v.getWidth(), H = v.getHeight(), pg = page, lv = level;
@@ -77,7 +98,7 @@ public class PdfActivity extends Activity {
                     dw = pw * s; dh = ph * s;
                     float k = 1f;
                     float px = dw * dh;
-                    if (px > 12e6f) k = (float) Math.sqrt(12e6f / px);
+                    if (px > 10e6f) k = (float) Math.sqrt(10e6f / px);
                     bm = Bitmap.createBitmap(Math.max(1, (int) (dw * k)), Math.max(1, (int) (dh * k)), Bitmap.Config.ARGB_8888);
                     bm.eraseColor(Color.WHITE);
                     p.render(bm, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
@@ -105,7 +126,7 @@ public class PdfActivity extends Activity {
         float st = U.dp(this, 70) * (1 + Math.min(e.getRepeatCount(), 10) / 3f);
         switch (k) {
             case KeyEvent.KEYCODE_DPAD_CENTER: case KeyEvent.KEYCODE_ENTER:
-                if (e.getRepeatCount() == 0) setLevel(level + 1 >= LM.length ? 0 : level + 1);
+                if (e.getRepeatCount() == 0) e.startTracking();
                 return true;
             case KeyEvent.KEYCODE_MENU: menu(); return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
@@ -124,6 +145,19 @@ public class PdfActivity extends Activity {
             case KeyEvent.KEYCODE_PAGE_UP: case KeyEvent.KEYCODE_CHANNEL_UP: goPage(page - 1, 1); return true;
         }
         return super.onKeyDown(k, e);
+    }
+
+    @Override public boolean onKeyLongPress(int k, KeyEvent e) {
+        if (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) { menu(); return true; }
+        return super.onKeyLongPress(k, e);
+    }
+
+    @Override public boolean onKeyUp(int k, KeyEvent e) {
+        if ((k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) && !e.isCanceled()) {
+            setLevel(level + 1 >= LM.length ? 0 : level + 1);
+            return true;
+        }
+        return super.onKeyUp(k, e);
     }
 
     void menu() {
@@ -157,6 +191,7 @@ public class PdfActivity extends Activity {
             try { if (r != null) r.close(); if (fd != null) fd.close(); } catch (Exception e) { }
             r = null;
         }
+        if (tmp != null) tmp.delete();
     }
 
     class V extends View {

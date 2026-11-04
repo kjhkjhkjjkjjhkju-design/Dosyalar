@@ -63,6 +63,7 @@ public class BrowseActivity extends Activity {
     File root, cur;
     int cat, sort, tok;
     boolean grid, thumbs, scanning;
+    int viewer;
     ArrayList<E> items = new ArrayList<>();
     ListView ll; GridView gv; AbsListView lv;
     Ad la, ga;
@@ -118,6 +119,7 @@ public class BrowseActivity extends Activity {
         gv.setHorizontalSpacing(U.dp(this, 10));
         gv.setVerticalSpacing(U.dp(this, 10));
         gv.setClipToPadding(false);
+        gv.setDrawSelectorOnTop(true);
         AdapterView.OnItemClickListener cl = (a, v, i, id) -> open(items.get(i));
         AdapterView.OnItemLongClickListener lc = (a, v, i, id) -> { actions(items.get(i)); return true; };
         for (AbsListView x : new AbsListView[]{ll, gv}) {
@@ -139,6 +141,21 @@ public class BrowseActivity extends Activity {
         setContentView(page);
         mode();
         load(null);
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (viewer == 0) return;
+        ArrayList<File> l = viewer == 2 ? ImgActivity.list : VidActivity.list;
+        int i = viewer == 2 ? ImgActivity.idx : VidActivity.idx;
+        viewer = 0;
+        if (l == null || i < 0 || i >= l.size()) return;
+        File f = l.get(i);
+        for (int j = 0; j < items.size(); j++) if (items.get(j).f.equals(f)) {
+            lv.setSelection(j);
+            lv.requestFocus();
+            break;
+        }
     }
 
     void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
@@ -252,6 +269,7 @@ public class BrowseActivity extends Activity {
         if (e.type == 2 || e.type == 3) {
             ArrayList<File> l = new ArrayList<>(); int k = 0;
             for (E x : items) if (x.type == e.type) { if (x == e) k = l.size(); l.add(x.f); }
+            viewer = e.type;
             if (e.type == 2) { ImgActivity.list = l; ImgActivity.idx = k; startActivity(new Intent(this, ImgActivity.class)); }
             else { VidActivity.list = l; VidActivity.idx = k; startActivity(new Intent(this, VidActivity.class)); }
         } else if (e.type == 4) {

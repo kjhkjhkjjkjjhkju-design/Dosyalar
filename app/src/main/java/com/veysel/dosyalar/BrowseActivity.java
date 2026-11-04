@@ -4,16 +4,25 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.provider.Settings;
 import android.text.TextUtils;
+import android.util.SparseArray;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AbsListView;
+import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.GridView;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -26,18 +35,46 @@ import java.util.Comparator;
 public class BrowseActivity extends Activity {
     static File clip;
     static boolean clipMove;
+    static final SparseArray<ArrayList<E>> CC = new SparseArray<>();
+    static final String[] IC = {"📄", "📁", "🖼️", "🎬", "📕", "📦", "🎵", "📄"};
+
+    // type: 0 diğer, 1 klasör, 2 resim, 3 video, 4 pdf, 5 apk, 6 ses, 7 belge
+    static final class E {
+        final File f; final String name; final boolean dir; final long size, mod; final int type; String sub;
+        E(File f, boolean isFile) {
+            this.f = f; name = f.getName();
+            dir = !isFile && f.isDirectory();
+            size = dir ? 0 : f.length(); mod = f.lastModified();
+            type = dir ? 1 : U.kind(name);
+        }
+    }
+
+    static void sort(ArrayList<E> l, final int mode) {
+        Collections.sort(l, new Comparator<E>() {
+            public int compare(E a, E b) {
+                if (a.dir != b.dir) return a.dir ? -1 : 1;
+                if (mode == 1) return Long.compare(b.mod, a.mod);
+                if (mode == 2) return Long.compare(b.size, a.size);
+                return a.name.compareToIgnoreCase(b.name);
+            }
+        });
+    }
 
     File root, cur;
-    int cat, sort;
-    ArrayList<File> items = new ArrayList<>();
-    ListView lv;
-    TextView path, empty, count;
+    int cat, sort, tok;
+    boolean grid, thumbs, scanning;
+    ArrayList<E> items = new ArrayList<>();
+    ListView ll; GridView gv; AbsListView lv;
+    Ad la, ga;
+    TextView path, empty, count, gbtn;
     View paste, newDir;
-    Ad ad = new Ad();
-    boolean scanning;
+    SharedPreferences sp;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        sp = U.sp(this);
+        grid = sp.getBoolean("grid", false);
+        thumbs = sp.getBoolean("thumb", false);
         cat = getIntent().getIntExtra("cat", 0);
         String title = getIntent().getStringExtra("title");
         if (cat == 0) root = cur = new File(getIntent().getStringExtra("path"));
@@ -58,91 +95,137 @@ public class BrowseActivity extends Activity {
         head.addView(path, new LinearLayout.LayoutParams(0, -2, 1f));
         paste = U.btn(this, "Yapıştır", v -> paste());
         newDir = U.btn(this, "Yeni klasör", v -> newFolder());
+        gbtn = U.btn(this, "Izgara", v -> toggleGrid());
         View srt = U.btn(this, "Sırala", v -> sortDialog());
         int m = U.dp(this, 8);
-        for (View v : new View[]{paste, newDir, srt}) {
+        for (View x : new View[]{paste, newDir, gbtn, srt}) {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
             lp.setMargins(m, 0, 0, 0);
-            head.addView(v, lp);
+            head.addView(x, lp);
         }
         paste.setVisibility(View.GONE);
         if (cat != 0) newDir.setVisibility(View.GONE);
         page.addView(head);
 
+        la = new Ad(false); ga = new Ad(true);
         FrameLayout body = new FrameLayout(this);
-        lv = new ListView(this);
-        lv.setDivider(null);
-        lv.setSelector(U.rect(0x4400B8D4, U.dp(this, 10), U.dp(this, 2), U.ACC));
-        lv.setAdapter(ad);
-        lv.setOnItemClickListener((a, v, i, id) -> open(items.get(i)));
-        lv.setOnItemLongClickListener((a, v, i, id) -> { actions(items.get(i)); return true; });
-        body.addView(lv, new FrameLayout.LayoutParams(-1, -1));
+        ll = new ListView(this);
+        ll.setDivider(null);
+        gv = new GridView(this);
+        gv.setNumColumns(GridView.AUTO_FIT);
+        gv.setColumnWidth(U.dp(this, 150));
+        gv.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
+        gv.setHorizontalSpacing(U.dp(this, 10));
+        gv.setVerticalSpacing(U.dp(this, 10));
+        gv.setClipToPadding(false);
+        AdapterView.OnItemClickListener cl = (a, v, i, id) -> open(items.get(i));
+        AdapterView.OnItemLongClickListener lc = (a, v, i, id) -> { actions(items.get(i)); return true; };
+        for (AbsListView x : new AbsListView[]{ll, gv}) {
+            x.setOnItemClickListener(cl);
+            x.setOnItemLongClickListener(lc);
+            x.setSelector(U.rect(0x4400B8D4, U.dp(this, 10), U.dp(this, 2), U.ACC));
+            body.addView(x, new FrameLayout.LayoutParams(-1, -1));
+        }
         empty = new TextView(this);
         empty.setTextColor(U.SUB); empty.setTextSize(20); empty.setGravity(Gravity.CENTER);
         body.addView(empty, new FrameLayout.LayoutParams(-1, -1));
-        lv.setEmptyView(empty);
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, 0, 1f);
         bp.setMargins(0, U.dp(this, 10), 0, U.dp(this, 6));
         page.addView(body, bp);
 
         count = new TextView(this);
         count.setTextColor(U.SUB); count.setTextSize(13);
-        count.setText("Uzun bas / Menü tuşu: işlemler");
         page.addView(count);
         setContentView(page);
+        mode();
         load(null);
     }
 
     void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
 
-    void sortItems() {
-        Collections.sort(items, new Comparator<File>() {
-            public int compare(File a, File b) {
-                if (a.isDirectory() != b.isDirectory()) return a.isDirectory() ? -1 : 1;
-                if (sort == 1) return Long.compare(b.lastModified(), a.lastModified());
-                if (sort == 2) return Long.compare(b.length(), a.length());
-                return a.getName().compareToIgnoreCase(b.getName());
-            }
-        });
+    void mode() {
+        ll.setAdapter(grid ? null : la);
+        gv.setAdapter(grid ? ga : null);
+        ll.setVisibility(grid ? View.GONE : View.VISIBLE);
+        gv.setVisibility(grid ? View.VISIBLE : View.GONE);
+        lv = grid ? gv : ll;
+        gbtn.setText(grid ? "Liste" : "Izgara");
+    }
+
+    void toggleGrid() {
+        int sel = lv.getSelectedItemPosition();
+        grid = !grid;
+        sp.edit().putBoolean("grid", grid).apply();
+        mode();
+        lv.setSelection(sel < 0 ? 0 : sel);
+        lv.requestFocus();
     }
 
     void done(File focus) {
-        sortItems();
-        ad.notifyDataSetChanged();
-        int sel = focus == null ? -1 : items.indexOf(focus);
-        lv.setSelection(sel < 0 ? 0 : sel);
+        la.notifyDataSetChanged(); ga.notifyDataSetChanged();
+        int sel = 0;
+        if (focus != null) for (int i = 0; i < items.size(); i++) if (items.get(i).f.equals(focus)) { sel = i; break; }
+        lv.setSelection(sel);
         lv.requestFocus();
-        empty.setText("Dosya yok");
+        empty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
+        empty.setText(scanning ? "Taranıyor…" : "Dosya yok");
         count.setText(items.size() + " öğe  •  Uzun bas / Menü tuşu: işlemler");
         paste.setVisibility(clip != null && cat == 0 ? View.VISIBLE : View.GONE);
     }
 
-    void load(File focus) {
+    void refresh(File focus) { CC.clear(); load(focus); }
+
+    void load(final File focus) {
+        final int t = ++tok;
         if (cat == 0) {
-            path.setText(cur.getPath());
-            items.clear();
-            File[] a = cur.listFiles();
-            if (a != null) for (File f : a) if (!f.getName().startsWith(".")) items.add(f);
-            done(focus);
-        } else if (!scanning) {
-            scanning = true;
-            empty.setText("Taranıyor…");
+            final File c = cur;
+            path.setText(c.getPath());
             new Thread(() -> {
-                ArrayList<File> r = new ArrayList<>();
-                scan(Environment.getExternalStorageDirectory(), 0, r);
-                runOnUiThread(() -> { scanning = false; items = r; done(null); });
+                File[] a = c.listFiles();
+                ArrayList<E> r = new ArrayList<>();
+                if (a != null) for (File f : a) if (f.getName().charAt(0) != '.') r.add(new E(f, false));
+                sort(r, sort);
+                runOnUiThread(() -> { if (t == tok) { items = r; done(focus); } });
             }).start();
+            return;
         }
+        ArrayList<E> c = CC.get(cat);
+        items = c == null ? new ArrayList<E>() : new ArrayList<>(c);
+        scanning = true;
+        done(null);
+        new Thread(() -> {
+            ArrayList<E> r = new ArrayList<>();
+            scan(Environment.getExternalStorageDirectory(), 0, r);
+            sort(r, sort);
+            CC.put(cat, r);
+            runOnUiThread(() -> {
+                scanning = false;
+                if (t != tok) return;
+                if (same(items, r)) { empty.setText("Dosya yok"); return; }
+                int i = lv.getSelectedItemPosition();
+                File f = i >= 0 && i < items.size() ? items.get(i).f : null;
+                items = new ArrayList<>(r);
+                done(f);
+            });
+        }).start();
     }
 
-    void scan(File d, int depth, ArrayList<File> out) {
+    static boolean same(ArrayList<E> a, ArrayList<E> b) {
+        if (a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) if (a.get(i).mod != b.get(i).mod || !a.get(i).f.equals(b.get(i).f)) return false;
+        return true;
+    }
+
+    void scan(File d, int depth, ArrayList<E> out) {
         File[] a = d.listFiles();
         if (a == null) return;
         for (File f : a) {
             String n = f.getName();
-            if (n.startsWith(".") || (depth == 0 && n.equals("Android"))) continue;
-            if (f.isDirectory()) { if (depth < 12) scan(f, depth + 1, out); }
-            else if (cat == 1 ? U.isImg(n) : cat == 2 ? U.isVid(n) : U.isDoc(n)) out.add(f);
+            if (n.charAt(0) == '.' || (depth == 0 && n.equals("Android"))) continue;
+            int k = U.kind(n);
+            if (k != 0) {
+                if (cat == 1 ? k == 2 : cat == 2 ? k == 3 : (k == 4 || k == 7)) out.add(new E(f, true));
+            } else if (depth < 12 && f.isDirectory()) scan(f, depth + 1, out);
         }
     }
 
@@ -163,36 +246,39 @@ public class BrowseActivity extends Activity {
         return super.onKeyDown(k, e);
     }
 
-    void open(File f) {
-        String n = f.getName();
-        if (f.isDirectory()) { cur = f; load(null); return; }
-        if (U.isImg(n)) {
+    void open(E e) {
+        File f = e.f;
+        if (e.dir) { cur = f; load(null); return; }
+        if (e.type == 2 || e.type == 3) {
             ArrayList<File> l = new ArrayList<>(); int k = 0;
-            for (File x : items) if (!x.isDirectory() && U.isImg(x.getName())) { if (x == f) k = l.size(); l.add(x); }
-            ImgActivity.list = l; ImgActivity.idx = k;
-            startActivity(new Intent(this, ImgActivity.class));
-        } else if (U.isVid(n)) {
-            ArrayList<File> l = new ArrayList<>(); int k = 0;
-            for (File x : items) if (!x.isDirectory() && U.isVid(x.getName())) { if (x == f) k = l.size(); l.add(x); }
-            VidActivity.list = l; VidActivity.idx = k;
-            startActivity(new Intent(this, VidActivity.class));
-        } else if (U.ext(n).equals("pdf")) {
+            for (E x : items) if (x.type == e.type) { if (x == e) k = l.size(); l.add(x.f); }
+            if (e.type == 2) { ImgActivity.list = l; ImgActivity.idx = k; startActivity(new Intent(this, ImgActivity.class)); }
+            else { VidActivity.list = l; VidActivity.idx = k; startActivity(new Intent(this, VidActivity.class)); }
+        } else if (e.type == 4) {
             startActivity(new Intent(this, PdfActivity.class).putExtra("p", f.getPath()));
-        } else {
-            Intent in = new Intent(Intent.ACTION_VIEW);
-            in.setDataAndType(FP.uri(f), FP.mime(f));
-            in.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            try { startActivity(in); } catch (Exception e) { toast("Bu dosyayı açacak uygulama yok"); }
+        } else openExt(f, e.type == 5);
+    }
+
+    void openExt(File f, boolean apk) {
+        if (apk && Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+            toast("Önce bu uygulamaya \"Bilinmeyen uygulamaları yükle\" izni ver, sonra tekrar aç");
+            try { startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))); } catch (Exception e) { }
+            return;
         }
+        Intent in = new Intent(Intent.ACTION_VIEW);
+        in.setDataAndType(FP.uri(f), apk ? "application/vnd.android.package-archive" : FP.mime(f));
+        in.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try { startActivity(in); } catch (Exception e) { toast(apk ? "Yükleyici bulunamadı" : "Bu dosyayı açacak uygulama yok"); }
     }
 
     AlertDialog.Builder dlg() { return new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK); }
 
-    void actions(final File f) {
+    void actions(final E e) {
+        final File f = e.f;
         String[] ops = {"Aç", "Yeniden adlandır", "Kopyala", "Taşı", "Sil", "Paylaş", "Bilgi"};
-        dlg().setTitle(f.getName()).setItems(ops, (d, i) -> {
+        dlg().setTitle(e.name).setItems(ops, (d, i) -> {
             switch (i) {
-                case 0: open(f); break;
+                case 0: open(e); break;
                 case 1: rename(f); break;
                 case 2: clip = f; clipMove = false; toast("Kopyalandı. Hedef klasörde \"Yapıştır\"a bas"); paste.setVisibility(cat == 0 ? View.VISIBLE : View.GONE); break;
                 case 3: clip = f; clipMove = true; toast("Taşınacak. Hedef klasörde \"Yapıştır\"a bas"); paste.setVisibility(cat == 0 ? View.VISIBLE : View.GONE); break;
@@ -212,7 +298,7 @@ public class BrowseActivity extends Activity {
                 File t = new File(f.getParentFile(), n);
                 if (n.isEmpty() || n.contains("/")) toast("Geçersiz ad");
                 else if (t.exists()) toast("Bu ad zaten var");
-                else if (f.renameTo(t)) { if (cat == 0) load(t); else { items.set(items.indexOf(f), t); done(t); } }
+                else if (f.renameTo(t)) refresh(t);
                 else toast("Yeniden adlandırılamadı");
             }).show();
     }
@@ -223,7 +309,7 @@ public class BrowseActivity extends Activity {
         dlg().setTitle("Yeni klasör").setView(et).setNegativeButton("İptal", null)
             .setPositiveButton("Oluştur", (d, w) -> {
                 File t = new File(cur, et.getText().toString().trim());
-                if (t.exists() || !t.mkdirs()) toast("Oluşturulamadı"); else load(t);
+                if (t.exists() || !t.mkdirs()) toast("Oluşturulamadı"); else refresh(t);
             }).show();
     }
 
@@ -232,8 +318,8 @@ public class BrowseActivity extends Activity {
             .setPositiveButton("Sil", (d, w) -> new Thread(() -> {
                 U.del(f);
                 runOnUiThread(() -> {
-                    if (clip == f) clip = null;
-                    if (cat == 0) load(null); else { items.remove(f); done(null); }
+                    if (f.equals(clip)) clip = null;
+                    refresh(null);
                     toast("Silindi");
                 });
             }).start()).show();
@@ -256,7 +342,7 @@ public class BrowseActivity extends Activity {
             runOnUiThread(() -> {
                 toast(r ? "Tamamlandı" : "İşlem başarısız");
                 if (mv && r) clip = null;
-                load(dest);
+                refresh(dest);
             });
         }).start();
     }
@@ -282,37 +368,88 @@ public class BrowseActivity extends Activity {
     }
 
     void sortDialog() {
-        dlg().setTitle("Sırala").setItems(new String[]{"Ada göre", "Tarihe göre (yeni)", "Boyuta göre"}, (d, i) -> { sort = i; done(null); }).show();
+        dlg().setTitle("Sırala").setItems(new String[]{"Ada göre", "Tarihe göre (yeni)", "Boyuta göre"}, (d, i) -> {
+            sort = i;
+            int p = lv.getSelectedItemPosition();
+            File f = p >= 0 && p < items.size() ? items.get(p).f : null;
+            sort(items, sort);
+            done(f);
+        }).show();
     }
 
+    String sub(E e) {
+        if (e.sub == null) {
+            File pf = e.f.getParentFile();
+            e.sub = (cat != 0 && pf != null ? pf.getName() + "  •  " : "") + (e.dir ? "" : U.size(e.size) + "  •  ") + U.date(e.mod);
+        }
+        return e.sub;
+    }
+
+    static final class H { TextView ic, nm, sb; ImageView th; }
+
     class Ad extends BaseAdapter {
+        final boolean g;
+        Ad(boolean g) { this.g = g; }
         public int getCount() { return items.size(); }
         public Object getItem(int i) { return items.get(i); }
         public long getItemId(int i) { return i; }
-        public View getView(int i, View v, ViewGroup g) {
+
+        public View getView(int i, View v, ViewGroup parent) {
             Context c = BrowseActivity.this;
-            TextView[] t;
-            if (v == null) {
-                LinearLayout r = new LinearLayout(c);
-                r.setGravity(Gravity.CENTER_VERTICAL);
-                r.setPadding(U.dp(c, 14), U.dp(c, 9), U.dp(c, 14), U.dp(c, 9));
-                TextView ic = new TextView(c); ic.setTextSize(26); ic.setGravity(Gravity.CENTER);
-                r.addView(ic, new LinearLayout.LayoutParams(U.dp(c, 52), -2));
-                LinearLayout col = new LinearLayout(c); col.setOrientation(LinearLayout.VERTICAL);
-                TextView nm = new TextView(c); nm.setTextSize(18); nm.setTextColor(U.TXT); nm.setSingleLine(true); nm.setEllipsize(TextUtils.TruncateAt.END);
-                TextView sb = new TextView(c); sb.setTextSize(13); sb.setTextColor(U.SUB); sb.setSingleLine(true);
-                col.addView(nm); col.addView(sb);
-                r.addView(col, new LinearLayout.LayoutParams(0, -2, 1f));
-                t = new TextView[]{ic, nm, sb};
-                r.setTag(t); v = r;
-            } else t = (TextView[]) v.getTag();
-            File f = items.get(i);
-            String n = f.getName();
-            t[0].setText(f.isDirectory() ? "📁" : U.isImg(n) ? "🖼️" : U.isVid(n) ? "🎬" : U.ext(n).equals("pdf") ? "📕" : U.ext(n).equals("apk") ? "📦" : U.in(n, "mp3,wav,flac,m4a,ogg,aac") ? "🎵" : "📄");
-            t[1].setText(n);
-            String where = cat != 0 && f.getParentFile() != null ? f.getParentFile().getName() + "  •  " : "";
-            t[2].setText(where + (f.isDirectory() ? "" : U.size(f.length()) + "  •  ") + U.date(f.lastModified()));
+            H h;
+            if (v == null) { h = new H(); v = g ? cell(c, h) : row(c, h); v.setTag(h); }
+            else h = (H) v.getTag();
+            E e = items.get(i);
+            h.ic.setText(IC[e.type]);
+            h.nm.setText(e.name);
+            if (!g) h.sb.setText(sub(e));
+            if (thumbs && (e.type == 2 || e.type == 3)) {
+                String k = e.f.getPath();
+                h.th.setTag(k);
+                Th.load(h.th, h.ic, k, e.type == 3, U.dp(c, g ? 150 : 56));
+            } else {
+                h.th.setTag(null);
+                h.th.setVisibility(View.GONE);
+                h.ic.setVisibility(View.VISIBLE);
+            }
             return v;
+        }
+
+        FrameLayout box(Context c, H h, int ics) {
+            FrameLayout b = new FrameLayout(c);
+            h.ic = new TextView(c); h.ic.setTextSize(ics); h.ic.setGravity(Gravity.CENTER);
+            h.th = new ImageView(c); h.th.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            b.addView(h.th, new FrameLayout.LayoutParams(-1, -1));
+            b.addView(h.ic, new FrameLayout.LayoutParams(-1, -1));
+            return b;
+        }
+
+        View row(Context c, H h) {
+            LinearLayout r = new LinearLayout(c);
+            r.setGravity(Gravity.CENTER_VERTICAL);
+            r.setPadding(U.dp(c, 14), U.dp(c, 8), U.dp(c, 14), U.dp(c, 8));
+            r.addView(box(c, h, 26), new LinearLayout.LayoutParams(U.dp(c, 56), U.dp(c, 42)));
+            LinearLayout col = new LinearLayout(c);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.setPadding(U.dp(c, 12), 0, 0, 0);
+            h.nm = new TextView(c); h.nm.setTextSize(18); h.nm.setTextColor(U.TXT); h.nm.setSingleLine(true); h.nm.setEllipsize(TextUtils.TruncateAt.END);
+            h.sb = new TextView(c); h.sb.setTextSize(13); h.sb.setTextColor(U.SUB); h.sb.setSingleLine(true);
+            col.addView(h.nm); col.addView(h.sb);
+            r.addView(col, new LinearLayout.LayoutParams(0, -2, 1f));
+            return r;
+        }
+
+        View cell(Context c, H h) {
+            LinearLayout r = new LinearLayout(c);
+            r.setOrientation(LinearLayout.VERTICAL);
+            r.setPadding(U.dp(c, 6), U.dp(c, 6), U.dp(c, 6), U.dp(c, 6));
+            r.setBackground(U.rect(U.CARD, U.dp(c, 12), 0, 0));
+            r.setLayoutParams(new AbsListView.LayoutParams(-1, U.dp(c, 148)));
+            r.addView(box(c, h, 42), new LinearLayout.LayoutParams(-1, U.dp(c, 96)));
+            h.nm = new TextView(c); h.nm.setTextSize(13); h.nm.setTextColor(U.TXT); h.nm.setMaxLines(2); h.nm.setEllipsize(TextUtils.TruncateAt.END); h.nm.setGravity(Gravity.CENTER);
+            h.nm.setPadding(0, U.dp(c, 4), 0, 0);
+            r.addView(h.nm, new LinearLayout.LayoutParams(-1, -2));
+            return r;
         }
     }
 }

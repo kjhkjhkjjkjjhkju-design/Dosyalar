@@ -30,7 +30,7 @@ public class ImgActivity extends Activity {
     Z z;
     TextView info;
     Handler h = new Handler();
-    boolean slide;
+    boolean slide, longDone;
     int token;
     final float[] ZS = {1f, 2f, 3f, 4f};
     int zi;
@@ -65,7 +65,7 @@ public class ImgActivity extends Activity {
         final int t = ++token;
         final File f = one == null ? list.get(idx) : null;
         zi = 0;
-        say(title() + "\nOK: yakınlaştır  •  OK uzun bas / Menü: slayt  •  ◀ ▶: önceki/sonraki");
+        say(title() + "\nOK: yakınlaştır  •  OK uzun bas / Menü: slayt (herhangi tuş durdurur)  •  ◀ ▶: gezin");
         new Thread(() -> {
             Bitmap bm = decode(f);
             runOnUiThread(() -> {
@@ -137,6 +137,11 @@ public class ImgActivity extends Activity {
         say("Yakınlaştırma: " + (int) (ZS[zi] * 100) + "%" + (zi > 0 ? "  (ok tuşları: kaydır)" : ""));
     }
 
+    void stopSlide() {
+        slide = false;
+        h.removeCallbacks(tick);
+    }
+
     void toggleSlide() {
         if (one != null) return;
         slide = !slide;
@@ -147,9 +152,15 @@ public class ImgActivity extends Activity {
 
     @Override public boolean onKeyDown(int k, KeyEvent e) {
         float st = U.dp(this, 60) * (1 + Math.min(e.getRepeatCount(), 10) / 3f);
+        if (slide && (k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT || k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_DPAD_DOWN
+            || k == KeyEvent.KEYCODE_PAGE_UP || k == KeyEvent.KEYCODE_PAGE_DOWN || k == KeyEvent.KEYCODE_CHANNEL_UP || k == KeyEvent.KEYCODE_CHANNEL_DOWN
+            || k == KeyEvent.KEYCODE_MEDIA_NEXT || k == KeyEvent.KEYCODE_MEDIA_PREVIOUS)) {
+            stopSlide();
+            say("Slayt durdu");
+        }
         switch (k) {
             case KeyEvent.KEYCODE_DPAD_CENTER: case KeyEvent.KEYCODE_ENTER:
-                if (e.getRepeatCount() == 0) e.startTracking();
+                if (e.getRepeatCount() == 0) { longDone = false; e.startTracking(); }
                 return true;
             case KeyEvent.KEYCODE_MENU: case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE: case KeyEvent.KEYCODE_MEDIA_PLAY: case KeyEvent.KEYCODE_MEDIA_PAUSE:
                 toggleSlide(); return true;
@@ -174,19 +185,24 @@ public class ImgActivity extends Activity {
     }
 
     @Override public boolean onKeyLongPress(int k, KeyEvent e) {
-        if (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) { toggleSlide(); return true; }
+        if (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) { longDone = true; toggleSlide(); return true; }
         return super.onKeyLongPress(k, e);
     }
 
     @Override public boolean onKeyUp(int k, KeyEvent e) {
-        if ((k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) && !e.isCanceled()) { zoom(); return true; }
+        if (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) {
+            if (longDone) longDone = false;
+            else if (!e.isCanceled()) {
+                if (slide) { stopSlide(); say("Slayt durdu"); } else zoom();
+            }
+            return true;
+        }
         return super.onKeyUp(k, e);
     }
 
     @Override protected void onPause() {
         super.onPause();
-        slide = false;
-        h.removeCallbacks(tick);
+        stopSlide();
     }
 
     class Z extends View {

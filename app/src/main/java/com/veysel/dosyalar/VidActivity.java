@@ -17,6 +17,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.net.Uri;
 import java.io.File;
 import java.util.ArrayList;
 
@@ -24,6 +25,7 @@ public class VidActivity extends Activity implements SurfaceHolder.Callback {
     static ArrayList<File> list;
     static int idx;
 
+    Uri one;
     MediaPlayer mp;
     SurfaceView sv;
     FrameLayout root;
@@ -45,7 +47,8 @@ public class VidActivity extends Activity implements SurfaceHolder.Callback {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        if (list == null || list.isEmpty()) { finish(); return; }
+        one = getIntent().getData();
+        if (one == null && (list == null || list.isEmpty())) { finish(); return; }
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
         sv = new SurfaceView(this);
@@ -77,11 +80,11 @@ public class VidActivity extends Activity implements SurfaceHolder.Callback {
 
     void start() {
         if (!surface || mp != null) return;
-        File f = list.get(idx);
-        title.setText(f.getName() + "   (" + (idx + 1) + "/" + list.size() + ")");
+        if (one != null) { String n = one.getLastPathSegment(); title.setText(n == null ? "Video" : n); }
+        else title.setText(list.get(idx).getName() + "   (" + (idx + 1) + "/" + list.size() + ")");
         try {
             mp = new MediaPlayer();
-            mp.setDataSource(f.getPath());
+            if (one != null) mp.setDataSource(this, one); else mp.setDataSource(list.get(idx).getPath());
             mp.setDisplay(sv.getHolder());
             mp.setOnVideoSizeChangedListener((m, w, hh) -> fit(w, hh));
             mp.setOnPreparedListener(m -> {
@@ -93,7 +96,7 @@ public class VidActivity extends Activity implements SurfaceHolder.Callback {
                 show();
             });
             mp.setOnCompletionListener(m -> {
-                if (idx + 1 < list.size()) { idx++; release(); start(); } else finish();
+                if (one == null && idx + 1 < list.size()) { idx++; release(); start(); } else finish();
             });
             mp.setOnErrorListener((m, w, e) -> { Toast.makeText(this, "Video oynatılamıyor", Toast.LENGTH_LONG).show(); finish(); return true; });
             mp.prepareAsync();
@@ -161,10 +164,10 @@ public class VidActivity extends Activity implements SurfaceHolder.Callback {
                 if (e.getRepeatCount() == 0) { setSpeed(Math.max(0.5f, speed - 0.25f)); show(); }
                 return true;
             case KeyEvent.KEYCODE_MEDIA_NEXT: case KeyEvent.KEYCODE_CHANNEL_UP:
-                if (idx + 1 < list.size()) { idx++; release(); start(); }
+                if (one == null && idx + 1 < list.size()) { idx++; release(); start(); }
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PREVIOUS: case KeyEvent.KEYCODE_CHANNEL_DOWN:
-                if (idx > 0) { idx--; release(); start(); }
+                if (one == null && idx > 0) { idx--; release(); start(); }
                 return true;
         }
         return super.onKeyDown(k, e);

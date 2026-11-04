@@ -18,5 +18,7 @@ android {
         }
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+    dependenciesInfo { includeInApk = false; includeInBundle = false }
+    packaging { resources { excludes += ['META-INF/**', 'DebugProbesKt.bin'] } }
     lint { checkReleaseBuilds false; abortOnError false }
 }

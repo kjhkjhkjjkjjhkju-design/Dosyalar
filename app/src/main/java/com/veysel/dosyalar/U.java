@@ -17,10 +17,23 @@ final class U {
     static int dp(Context c, int v) { return (int) (v * c.getResources().getDisplayMetrics().density + .5f); }
 
     static String ext(String n) { int i = n.lastIndexOf('.'); return i < 0 ? "" : n.substring(i + 1).toLowerCase(); }
-    static boolean in(String n, String l) { return ("," + l + ",").contains("," + ext(n) + ","); }
-    static boolean isImg(String n) { return in(n, "jpg,jpeg,png,webp,bmp,gif"); }
-    static boolean isVid(String n) { return in(n, "mp4,mkv,avi,mov,webm,3gp,ts,m4v,mpg,mpeg,wmv,flv"); }
-    static boolean isDoc(String n) { return in(n, "pdf,doc,docx,xls,xlsx,ppt,pptx,txt,odt,ods,epub,rtf,csv"); }
+    static int kind(String n) {
+        switch (ext(n)) {
+            case "jpg": case "jpeg": case "png": case "webp": case "bmp": case "gif": return 2;
+            case "mp4": case "mkv": case "avi": case "mov": case "webm": case "3gp": case "ts": case "m4v": case "mpg": case "mpeg": case "wmv": case "flv": return 3;
+            case "pdf": return 4;
+            case "apk": return 5;
+            case "mp3": case "wav": case "flac": case "m4a": case "ogg": case "aac": return 6;
+            case "doc": case "docx": case "xls": case "xlsx": case "ppt": case "pptx": case "txt": case "odt": case "ods": case "epub": case "rtf": case "csv": return 7;
+        }
+        return 0;
+    }
+    static boolean isImg(String n) { return kind(n) == 2; }
+    static boolean isVid(String n) { return kind(n) == 3; }
+    static boolean isDoc(String n) { int k = kind(n); return k == 4 || k == 7; }
+
+    static android.content.SharedPreferences sp(Context c) { return c.getSharedPreferences("s", 0); }
+    static final SimpleDateFormat DF = new SimpleDateFormat("dd.MM.yyyy HH:mm");
 
     static String size(long b) {
         if (b < 1024) return b + " B";
@@ -31,7 +44,7 @@ final class U {
         return String.format("%.2f GB", m / 1024);
     }
 
-    static String date(long t) { return new SimpleDateFormat("dd.MM.yyyy HH:mm").format(new Date(t)); }
+    static String date(long t) { synchronized (DF) { return DF.format(new Date(t)); } }
 
     static String time(int ms) {
         int s = ms / 1000;

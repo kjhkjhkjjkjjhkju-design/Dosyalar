@@ -16,13 +16,17 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.TextView;
+import android.net.Uri;
+import android.os.Build;
 import java.io.File;
+import java.io.InputStream;
 import java.util.ArrayList;
 
 public class ImgActivity extends Activity {
     static ArrayList<File> list;
     static int idx;
 
+    Uri one;
     Z z;
     TextView info;
     Handler h = new Handler();
@@ -42,7 +46,8 @@ public class ImgActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        if (list == null || list.isEmpty()) { finish(); return; }
+        one = getIntent().getData();
+        if (one == null && (list == null || list.isEmpty())) { finish(); return; }
         FrameLayout r = new FrameLayout(this);
         r.setBackgroundColor(Color.BLACK);
         z = new Z();
@@ -58,10 +63,9 @@ public class ImgActivity extends Activity {
 
     void load() {
         final int t = ++token;
-        final File f = list.get(idx);
+        final File f = one == null ? list.get(idx) : null;
         zi = 0;
-        say(f.getName() + "  •  " + (idx + 1) + "/" + list.size() + "\nOK: yakınlaştır  •  Menü: slayt  •  ◀ ▶: önceki/sonraki");
-        final int sw = Math.max(getResources().getDisplayMetrics().widthPixels, 1);
+        say(title() + "\nOK: yakınlaştır  •  OK uzun bas / Menü: slayt  •  ◀ ▶: önceki/sonraki");
         new Thread(() -> {
             Bitmap bm = decode(f);
             runOnUiThread(() -> {
@@ -72,21 +76,39 @@ public class ImgActivity extends Activity {
         }).start();
     }
 
+    String title() {
+        if (one != null) { String n = one.getLastPathSegment(); return n == null ? "Resim" : n; }
+        return list.get(idx).getName() + "  •  " + (idx + 1) + "/" + list.size();
+    }
+
+    InputStream open(File f) throws Exception {
+        return f != null ? new java.io.FileInputStream(f) : getContentResolver().openInputStream(one);
+    }
+
     Bitmap decode(File f) {
         try {
             BitmapFactory.Options o = new BitmapFactory.Options();
             o.inJustDecodeBounds = true;
-            BitmapFactory.decodeFile(f.getPath(), o);
+            InputStream in = open(f);
+            BitmapFactory.decodeStream(in, null, o);
+            in.close();
             int ss = 1;
-            while (o.outWidth / ss > 4096 || o.outHeight / ss > 4096) ss *= 2;
+            while (o.outWidth / ss > 3072 || o.outHeight / ss > 3072) ss *= 2;
             o = new BitmapFactory.Options();
             o.inSampleSize = ss;
-            Bitmap b = BitmapFactory.decodeFile(f.getPath(), o);
+            in = open(f);
+            Bitmap b = BitmapFactory.decodeStream(in, null, o);
+            in.close();
             if (b == null) return null;
             int deg = 0;
             try {
-                int or = new ExifInterface(f.getPath()).getAttributeInt(ExifInterface.TAG_ORIENTATION, 1);
-                deg = or == 6 ? 90 : or == 3 ? 180 : or == 8 ? 270 : 0;
+                ExifInterface ex = null;
+                if (f != null) ex = new ExifInterface(f.getPath());
+                else if (Build.VERSION.SDK_INT >= 24) { InputStream i2 = open(null); ex = new ExifInterface(i2); }
+                if (ex != null) {
+                    int or = ex.getAttributeInt(ExifInterface.TAG_ORIENTATION, 1);
+                    deg = or == 6 ? 90 : or == 3 ? 180 : or == 8 ? 270 : 0;
+                }
             } catch (Exception e) { }
             if (deg != 0) {
                 Matrix m = new Matrix(); m.postRotate(deg);
@@ -104,6 +126,7 @@ public class ImgActivity extends Activity {
     }
 
     void go(int d) {
+        if (one != null) return;
         idx = (idx + d + list.size()) % list.size();
         load();
     }
@@ -115,6 +138,7 @@ public class ImgActivity extends Activity {
     }
 
     void toggleSlide() {
+        if (one != null) return;
         slide = !slide;
         h.removeCallbacks(tick);
         if (slide) h.postDelayed(tick, 4000);
@@ -136,10 +160,10 @@ public class ImgActivity extends Activity {
                 if (z.zoom > 1) z.pan(-st, 0); else go(1);
                 return true;
             case KeyEvent.KEYCODE_DPAD_UP:
-                if (z.zoom > 1) z.pan(0, st); else say(list.get(idx).getName() + "  •  " + (idx + 1) + "/" + list.size());
+                if (z.zoom > 1) z.pan(0, st); else say(title());
                 return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
-                if (z.zoom > 1) z.pan(0, -st); else say(list.get(idx).getName() + "  •  " + (idx + 1) + "/" + list.size());
+                if (z.zoom > 1) z.pan(0, -st); else say(title());
                 return true;
             case KeyEvent.KEYCODE_PAGE_DOWN: case KeyEvent.KEYCODE_CHANNEL_DOWN: case KeyEvent.KEYCODE_MEDIA_NEXT:
                 go(1); return true;

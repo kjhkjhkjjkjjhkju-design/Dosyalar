@@ -3,6 +3,7 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <uses-feature android:name="android.software.leanback" android:required="false"/>
     <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
     <application android:label="Dosyalar" android:icon="@drawable/ic" android:banner="@drawable/banner"
@@ -16,9 +17,36 @@
             </intent-filter>
         </activity>
         <activity android:name=".BrowseActivity" android:configChanges="orientation|screenSize|keyboardHidden"/>
-        <activity android:name=".ImgActivity" android:configChanges="orientation|screenSize|keyboardHidden"/>
-        <activity android:name=".VidActivity" android:configChanges="orientation|screenSize|keyboardHidden"/>
-        <activity android:name=".PdfActivity" android:configChanges="orientation|screenSize|keyboardHidden"/>
+        <activity android:name=".ImgActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:mimeType="image/*"/>
+            </intent-filter>
+        </activity>
+        <activity android:name=".VidActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:mimeType="video/*"/>
+            </intent-filter>
+        </activity>
+        <activity android:name=".PdfActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:mimeType="application/pdf"/>
+            </intent-filter>
+        </activity>
         <provider android:name=".FP" android:authorities="com.veysel.dosyalar.fp" android:exported="false" android:grantUriPermissions="true"/>
     </application>
 </manifest>

@@ -2,6 +2,7 @@ package com.veysel.dosyalar;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
@@ -49,8 +50,15 @@ public class MainActivity extends Activity {
             android.graphics.drawable.GradientDrawable.Orientation.TL_BR, new int[]{0xFF16233A, 0xFF0A0F1A}));
         root.setPadding(p, p, p, U.dp(this, 20));
 
-        root.addView(tv("Dosyalar", 40, U.TXT, true));
-        root.addView(tv("TV Dosya Yöneticisi", 16, U.ACC, false));
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout tt = new LinearLayout(this);
+        tt.setOrientation(LinearLayout.VERTICAL);
+        tt.addView(tv("Dosyalar", 40, U.TXT, true));
+        tt.addView(tv("TV Dosya Yöneticisi", 16, U.ACC, false));
+        top.addView(tt, new LinearLayout.LayoutParams(0, -2, 1f));
+        top.addView(U.btn(this, "⚙ Ayarlar", v -> settings()));
+        root.addView(top);
 
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER);
@@ -76,6 +84,15 @@ public class MainActivity extends Activity {
         f.setGravity(Gravity.CENTER);
         root.addView(f, new LinearLayout.LayoutParams(-1, -2));
         setContentView(root);
+    }
+
+    void settings() {
+        final android.content.SharedPreferences sp = U.sp(this);
+        final boolean[] on = {sp.getBoolean("thumb", false), sp.getBoolean("grid", false)};
+        new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK).setTitle("Ayarlar")
+            .setMultiChoiceItems(new String[]{"Küçük resim önizleme (fotoğraf / video)", "Izgara görünümü"}, on,
+                (d, i, c) -> sp.edit().putBoolean(i == 0 ? "thumb" : "grid", c).apply())
+            .setPositiveButton("Tamam", null).show();
     }
 
     void add(LinearLayout row, String icon, final String title, String sub, final int cat, final String path) {
